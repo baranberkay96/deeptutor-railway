@@ -1,0 +1,215 @@
+{
+  "name": "DeepTutor v1 Personal AI Tutor",
+  "description": "Personalized AI tutoring over your own documents, with quizzes and notes.",
+  "category": "AI/ML",
+  "tags": [
+    "deeptutor",
+    "ai-tutor",
+    "education",
+    "learning",
+    "rag",
+    "knowledge-base",
+    "quiz",
+    "llm",
+    "self-hosted"
+  ],
+  "image": "https://cdn.jsdelivr.net/gh/HKUDS/DeepTutor@v1.6.15/web/public/logo.png",
+  "upstream": {
+    "repo": "HKUDS/DeepTutor",
+    "version": "v1.6.15 (released 2026-10-18, tag commit a31d826; image ghcr.io/hkuds/deeptutor:1.6.15@sha256:602d5dfbac7430e364069ac6672642cb0d764e046d189bf596d9ddc6b775c535)",
+    "checked": "2026-10-20"
+  },
+  "services": {
+    "DeepTutor": {
+      "icon": "https://cdn.jsdelivr.net/gh/HKUDS/DeepTutor@v1.6.15/web/public/logo.png",
+      "source": {
+        "repo": "baranberkay96/deeptutor-railway",
+        "rootDirectory": "/services/deeptutor"
+      },
+      "startCommand": null,
+      "preDeployCommand": null,
+      "healthcheckPath": "/api/auth/status",
+      "healthcheckTimeout": 900,
+      "restartPolicyType": "ALWAYS",
+      "restartPolicyMaxRetries": null,
+      "numReplicas": 1,
+      "cronSchedule": null,
+      "publicDomain": true,
+      "targetPort": 3782,
+      "tcpProxy": null,
+      "volume": {
+        "mountPath": "/app/data"
+      },
+      "variables": {
+        "PORT": {
+          "defaultValue": "3782",
+          "description": "Port of the Next.js web app (0.0.0.0). Railway routes the public domain and the /api/auth/status healthcheck here; the app proxies /api and /ws to the API on 127.0.0.1:8001.",
+          "required": false
+        },
+        "DEEPTUTOR_ADMIN_USERNAME": {
+          "defaultValue": "admin",
+          "description": "Username of the admin account (3-64 letters, digits, '.', '_' or '-', or an email).",
+          "required": false
+        },
+        "DEEPTUTOR_ADMIN_PASSWORD": {
+          "defaultValue": "${{secret(32, \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\")}}",
+          "description": "Admin password, generated at deploy (min. 12 characters). Login is always required; the public sign-up page stays closed. To rotate, change it here and redeploy.",
+          "required": false
+        },
+        "DEEPTUTOR_TOKEN_EXPIRE_HOURS": {
+          "defaultValue": "24",
+          "description": "How long a login stays valid, in hours (upstream default 24).",
+          "required": false
+        },
+        "DEEPTUTOR_CORS_ORIGINS": {
+          "defaultValue": "https://${{RAILWAY_PUBLIC_DOMAIN}}",
+          "description": "Allowed browser origins for the API, comma-separated. Add your custom domain here if you attach one.",
+          "required": false
+        },
+        "DEEPTUTOR_WORKERS": {
+          "defaultValue": "2",
+          "description": "API worker processes (1-8). More than 1 needs Redis; the start script falls back to 1 if Redis is unreachable. Each worker adds roughly 0.4-0.6 GB RAM.",
+          "required": false
+        },
+        "DEEPTUTOR_REDIS_URL": {
+          "defaultValue": "${{Redis.REDIS_URL}}",
+          "description": "Private Redis URL for DeepTutor's turn coordination (event streams, leases, multi-worker mode).",
+          "required": false
+        },
+        "DEEPTUTOR_REDIS_WAIT_SECONDS": {
+          "defaultValue": "300",
+          "description": "How long the start script waits for Redis before starting with 1 in-memory worker instead.",
+          "required": false
+        },
+        "DEEPTUTOR_ALLOW_CODE_EXEC": {
+          "defaultValue": "false",
+          "description": "Keep false unless you need it. true lets admins' chats run model-written code (office-file skills, code answers) as a restricted subprocess inside this container, which can read the app's data and keys. Railway has no Docker sandbox.",
+          "required": false
+        },
+        "LLM_BINDING": {
+          "defaultValue": "openai",
+          "description": "DeepTutor provider id for LLM_API_KEY, e.g. openai, anthropic, gemini, deepseek, openrouter, groq, mistral.",
+          "required": false
+        },
+        "LLM_API_KEY": {
+          "defaultValue": "",
+          "description": "Optional, recommended. Chat model API key. When set, a 'Railway' provider profile is created and selected on boot. You can instead add providers in Settings after login.",
+          "required": false
+        },
+        "LLM_MODEL": {
+          "defaultValue": "gpt-5-mini",
+          "description": "Model id on that provider (e.g. gpt-5-mini, claude-sonnet-4-5, gemini-2.5-flash).",
+          "required": false
+        },
+        "LLM_BASE_URL": {
+          "defaultValue": "",
+          "description": "Optional. API base URL; empty uses the provider's default (e.g. https://api.openai.com/v1).",
+          "required": false
+        },
+        "EMBEDDING_BINDING": {
+          "defaultValue": "openai",
+          "description": "Embedding provider id for knowledge bases (openai, gemini, cohere, jina, siliconflow, ...).",
+          "required": false
+        },
+        "EMBEDDING_API_KEY": {
+          "defaultValue": "",
+          "description": "Optional. Embedding API key. Empty: reuses LLM_API_KEY (and LLM_BASE_URL) when EMBEDDING_BINDING equals LLM_BINDING. Knowledge bases need an embedding model.",
+          "required": false
+        },
+        "EMBEDDING_MODEL": {
+          "defaultValue": "text-embedding-3-small",
+          "description": "Embedding model id used for new knowledge bases.",
+          "required": false
+        },
+        "EMBEDDING_BASE_URL": {
+          "defaultValue": "",
+          "description": "Optional. Embedding endpoint; empty uses LLM_BASE_URL when the LLM key is reused, otherwise the provider's default.",
+          "required": false
+        },
+        "EMBEDDING_DIMENSION": {
+          "defaultValue": "",
+          "description": "Optional. Vector size. Empty: 1536/3072 for OpenAI text-embedding-3-small/-large, otherwise the provider's default.",
+          "required": false
+        },
+        "BACKEND_HOST": {
+          "defaultValue": "127.0.0.1",
+          "description": "Bind address of the FastAPI backend. Loopback only: the browser reaches it through the web app's proxy, never directly.",
+          "required": false
+        },
+        "TZ": {
+          "defaultValue": "UTC",
+          "description": "Time zone for the backend and frontend (e.g. Europe/Istanbul).",
+          "required": false
+        },
+        "DEEPTUTOR_EXTRAS": {
+          "defaultValue": "",
+          "description": "Optional upstream extras installed on every start, comma-separated (e.g. parse-markitdown, rag-lightrag). Slows boot; the pip cache is kept on the volume.",
+          "required": false
+        },
+        "DEEPTUTOR_APT_PACKAGES": {
+          "defaultValue": "",
+          "description": "Optional Debian packages installed on every start, comma-separated (e.g. ffmpeg).",
+          "required": false
+        },
+        "RAILWAY_DEPLOYMENT_DRAINING_SECONDS": {
+          "defaultValue": "45",
+          "description": "Grace period on redeploy so running answers are saved (the backend gets 30 s before it is stopped).",
+          "required": false
+        }
+      }
+    },
+    "Redis": {
+      "icon": "https://cdn.sanity.io/images/sy1jschh/production/0ce0bfdcfbdbf69662b1116671f97c2dd788b655-157x157.svg",
+      "source": {
+        "image": "redis:8.2"
+      },
+      "startCommand": "/bin/sh -c \"rm -rf $RAILWAY_VOLUME_MOUNT_PATH/lost+found/ && exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD --save 60 1 --appendonly yes --appendfsync everysec --dir $RAILWAY_VOLUME_MOUNT_PATH\"",
+      "preDeployCommand": null,
+      "healthcheckPath": null,
+      "healthcheckTimeout": null,
+      "restartPolicyType": "ON_FAILURE",
+      "restartPolicyMaxRetries": 10,
+      "numReplicas": 1,
+      "cronSchedule": null,
+      "publicDomain": false,
+      "targetPort": null,
+      "tcpProxy": null,
+      "volume": {
+        "mountPath": "/data"
+      },
+      "variables": {
+        "REDISHOST": {
+          "defaultValue": "${{RAILWAY_PRIVATE_DOMAIN}}",
+          "description": "Private network hostname of the Redis service, only resolvable from services in the same environment",
+          "required": false
+        },
+        "REDISPORT": {
+          "defaultValue": "6379",
+          "description": "Port that Redis listens on",
+          "required": false
+        },
+        "REDISUSER": {
+          "defaultValue": "default",
+          "description": "Username for authenticating with Redis",
+          "required": false
+        },
+        "REDIS_URL": {
+          "defaultValue": "redis://${{ REDISUSER }}:${{ REDIS_PASSWORD }}@${{ REDISHOST }}:${{ REDISPORT }}",
+          "description": "Connection string for connecting to Redis using the private network",
+          "required": false
+        },
+        "REDISPASSWORD": {
+          "defaultValue": "${{REDIS_PASSWORD}}",
+          "description": "Alias of REDIS_PASSWORD for clients that expect the unseparated name",
+          "required": false
+        },
+        "REDIS_PASSWORD": {
+          "defaultValue": "${{ secret(32, \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\") }}",
+          "description": "Randomly generated password for authenticating with Redis",
+          "required": false
+        }
+      }
+    }
+  },
+  "buckets": []
+}
