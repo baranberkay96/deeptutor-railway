@@ -37,7 +37,8 @@ SETTINGS_DIR = APP_ROOT / "data" / "user" / "settings"
 
 BACKEND_PORT = 8001
 MAX_WORKERS = 8
-MIN_PASSWORD_LENGTH = 12
+MIN_PASSWORD_LENGTH = 8  # DeepTutor's own minimum
+RECOMMENDED_PASSWORD_LENGTH = 12
 MAX_PASSWORD_BYTES = 72  # bcrypt only uses the first 72 bytes
 REDIS_RETRY_SECONDS = 5
 LLM_PROFILE_ID = "railway-llm"
@@ -62,12 +63,14 @@ URL_RE = re.compile(r"^https?://[^\s/]+(/\S*)?$")
 ORIGIN_SPLIT_RE = re.compile(r"[\s,;]+")
 
 
-class ConfigError(Exception):
-    """A Railway variable has a value DeepTutor cannot start with."""
-
-
 def log(message: str) -> None:
     print(f"[railway] {message}", flush=True)
+
+
+def warn(message: str) -> None:
+    """A variable has an unusable value. Say so and carry on with a safe value:
+    a failed start would leave the user with a dead deploy and no app to fix it in."""
+    print(f"[railway] WARNING: {message}", file=sys.stderr, flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +90,8 @@ def env_bool(name: str, default: bool) -> bool:
         return True
     if raw in FALSE_WORDS:
         return False
-    raise ConfigError(f"{name} must be true or false, got {raw!r}")
+    warn(f"{name} must be true or false, got {raw!r}; using {str(default).lower()}")
+    return default
 
 
 def env_int(name: str, default: int, low: int, high: int) -> int:
@@ -96,24 +100,32 @@ def env_int(name: str, default: int, low: int, high: int) -> int:
         return default
     try:
         value = int(raw)
-    except ValueError as exc:
-        raise ConfigError(f"{name} must be a whole number, got {raw!r}") from exc
+    except ValueError:
+        warn(f"{name} must be a whole number, got {raw!r}; using {default}")
+        return default
     if not low <= value <= high:
-        raise ConfigError(f"{name} must be between {low} and {high}, got {value}")
+        clamped = min(max(value, low), high)
+        warn(f"{name} must be between {low} and {high}, got {value}; using {clamped}")
+        return clamped
     return value
 
 
 def env_url(name: str) -> str:
     value = env_str(name).rstrip("/")
-    if value and not URL_RE.match(value):
-        raise ConfigError(f"{name} must be an http(s) URL, got {value!r}")
-    return value
+    if not value or URL_RE.match(value):
+        return value
+    if URL_RE.match(f"https://{value}"):
+        warn(f"{name} has no scheme; using https://{value}")
+        return f"https://{value}"
+    warn(f"{name} must be an http(s) URL, got {value!r}; using the provider's default URL")
+    return ""
 
 
 def env_binding(name: str, default: str) -> str:
     value = env_str(name, default).lower().replace("-", "_") or default
     if not BINDING_RE.match(value):
-        raise ConfigError(f"{name} must be a DeepTutor provider id such as openai, got {value!r}")
+        warn(f"{name} must be a DeepTutor provider id such as openai, got {value!r}; using {default}")
+        return default
     return value
 
 
@@ -156,19 +168,35 @@ def parse_origins(raw: str) -> tuple[str, ...]:
 
 
 def admin_credentials() -> tuple[str, str]:
+    """Return (username, password). An empty password means "no usable password":
+    apply_auth then keeps the stored hash, or locks the login until it is set."""
     username = env_str("DEEPTUTOR_ADMIN_USERNAME", "admin") or "admin"
     if not (USERNAME_RE.match(username) or EMAIL_RE.match(username)):
-        raise ConfigError(
-            "DEEPTUTOR_ADMIN_USERNAME must be 3-64 letters, digits, '.', '_' or '-', or an email address"
+        warn(
+            "DEEPTUTOR_ADMIN_USERNAME must be 3-64 letters, digits, '.', '_' or '-', or an email address; "
+            "using admin"
         )
+        username = "admin"
     password = os.environ.get("DEEPTUTOR_ADMIN_PASSWORD", "")
-    if len(password) < MIN_PASSWORD_LENGTH:
-        raise ConfigError(
-            f"DEEPTUTOR_ADMIN_PASSWORD must have at least {MIN_PASSWORD_LENGTH} characters. "
-            "Refusing to start: DeepTutor would otherwise run without a usable admin login."
+    if not password:
+        warn("DEEPTUTOR_ADMIN_PASSWORD is empty; set it and redeploy to sign in")
+    elif len(password) < MIN_PASSWORD_LENGTH:
+        warn(
+            f"DEEPTUTOR_ADMIN_PASSWORD has fewer than {MIN_PASSWORD_LENGTH} characters and was not applied; "
+            "set a longer one and redeploy"
         )
-    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
-        raise ConfigError(f"DEEPTUTOR_ADMIN_PASSWORD must be at most {MAX_PASSWORD_BYTES} bytes")
+        password = ""
+    elif len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        warn(
+            f"DEEPTUTOR_ADMIN_PASSWORD is longer than {MAX_PASSWORD_BYTES} bytes and was not applied; "
+            "set a shorter one and redeploy"
+        )
+        password = ""
+    elif len(password) < RECOMMENDED_PASSWORD_LENGTH:
+        warn(
+            f"DEEPTUTOR_ADMIN_PASSWORD has fewer than {RECOMMENDED_PASSWORD_LENGTH} characters; "
+            "the app is public, so use a longer one"
+        )
     return username, password
 
 
@@ -194,7 +222,8 @@ def embedding_input(llm: Optional[ProviderInput]) -> Optional[ProviderInput]:
     model = env_str("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL) or DEFAULT_EMBEDDING_MODEL
     dimension = env_str("EMBEDDING_DIMENSION")
     if dimension and not (dimension.isdigit() and int(dimension) > 0):
-        raise ConfigError(f"EMBEDDING_DIMENSION must be a positive number or empty, got {dimension!r}")
+        warn(f"EMBEDDING_DIMENSION must be a positive number or empty, got {dimension!r}; ignoring it")
+        dimension = ""
     base_url = env_url("EMBEDDING_BASE_URL")
     if not base_url and llm is not None and api_key == llm.api_key:
         # Same key as the chat model: also use its endpoint (an OpenAI-compatible
@@ -212,10 +241,12 @@ def embedding_input(llm: Optional[ProviderInput]) -> Optional[ProviderInput]:
 def load_settings() -> Settings:
     port = env_int("PORT", 3782, 1, 65535)
     if port == BACKEND_PORT:
-        raise ConfigError(f"PORT must not be {BACKEND_PORT}; the DeepTutor API uses that port inside the container")
+        warn(f"PORT must not be {BACKEND_PORT}, the DeepTutor API's port inside the container; using 3782")
+        port = 3782
     redis_url = env_str("DEEPTUTOR_REDIS_URL")
     if redis_url and not redis_url.startswith(("redis://", "rediss://")):
-        raise ConfigError("DEEPTUTOR_REDIS_URL must start with redis:// or rediss://")
+        warn("DEEPTUTOR_REDIS_URL must start with redis:// or rediss://; ignoring it")
+        redis_url = ""
     username, password = admin_credentials()
     llm = llm_input()
     return Settings(
@@ -359,6 +390,12 @@ def apply_system(current: dict[str, Any], settings: Settings, workers: int) -> d
 def password_hash(password: str, existing: str) -> str:
     import bcrypt  # shipped in the DeepTutor image
 
+    if not password:
+        if existing:
+            log("keeping the admin password that is already stored")
+            return existing
+        # Nobody knows this password: login stays closed until the variable is set.
+        return bcrypt.hashpw(os.urandom(32).hex().encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     if existing:
         try:
             if bcrypt.checkpw(password.encode("utf-8"), existing.encode("utf-8")):
@@ -513,11 +550,7 @@ def describe(settings: Settings, backend: str, workers: int) -> None:
 
 
 def main() -> int:
-    try:
-        settings = load_settings()
-    except ConfigError as exc:
-        print(f"[railway] ERROR: {exc}", file=sys.stderr, flush=True)
-        return 1
+    settings = load_settings()
     SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
     backend, redis_url, workers = coordination(settings)
     update_json("system", lambda current: apply_system(current, settings, workers))

@@ -53,7 +53,7 @@
         },
         "DEEPTUTOR_ADMIN_PASSWORD": {
           "defaultValue": "${{secret(32, \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\")}}",
-          "description": "Admin password, generated at deploy (min. 12 characters). Login is always required; the public sign-up page stays closed. To rotate, change it here and redeploy.",
+          "description": "Admin password, generated at deploy (min. 8 characters, 12+ recommended; otherwise the login stays locked). Login is always required; the public sign-up page stays closed. To rotate, change it here and redeploy.",
           "required": false
         },
         "DEEPTUTOR_TOKEN_EXPIRE_HOURS": {
